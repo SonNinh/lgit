@@ -1,16 +1,17 @@
 #!/usr/bin/python3
 
 from argparse import ArgumentParser
-from os import open, mkdir, O_CREAT, O_RDWR, O_RDONLY, chmod, stat
-from os import write, read, path, close, unlink, lseek
+from os import mkdir, O_CREAT, O_RDWR, O_RDONLY, chmod, stat
+from os import path, close, unlink, lseek
 import hashlib
 from time import ctime
 
 
-def createTime(mtime):
+def getTime(path):
     lsOfMonth = {'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
                  'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
                  'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'}
+    mtime = ctime(stat(path).st_mtime)
     res = mtime[-4:]
     res += lsOfMonth[mtime[4:7]]
     res += mtime[8:10]
@@ -20,45 +21,112 @@ def createTime(mtime):
     return res
 
 
-def createNewFoderlInObjects(file, m):
-    f = open(file, O_RDONLY)
-    txt = read(f, stat(f).st_size)
+def updateExistedIndex(indexFile, file, m, cursorPos):
+    indexFile.seek(cursorPos, 0)
+    mtime = getTime(file)
+    indexFile.write(mtime)
+
+    f = open(file, 'rb')
+    txt = f.read()
     m.update(txt)
-    hash = m.hexdigest()
-    newdir = '.lgit/objects/' + hash[:2]
-    if not path.isdir(newdir):
-        mkdir(newdir)
-    newdir = newdir + '/' + hash[2:]
-    try:
-        unlink(newdir)
-    except Exception:
-        pass
-    f = open(newdir, O_CREAT | O_RDWR)
-    write(f, txt)
-    close(f)
-    chmod(newdir, 0o644)
+    hash = ' ' + m.hexdigest()
+    hash *= 2
+    indexFile.write(hash)
 
 
-def lgitAdd(srcFiles):
+def updateIndexFile(file, indexFile):
     m = hashlib.sha1()
-    indexFile = open('.lgit/index', O_CREAT | O_RDWR)
-    lseek(indexFile, stat(indexFile).st_size, 0)
-    for file in srcFiles:
-        createNewFoderlInObjects(file, m)
+    cursorPos = 0
+    indexFile.seek(cursorPos, 0)
+    eachLine = indexFile.readline().split()
 
-        mtime = ctime(stat(file).st_mtime)
-        mtime = createTime(mtime)
-        write(indexFile, ('\n' + mtime).encode())
+    while len(eachLine) > 1:
+        if eachLine[-1] == path.abspath(file):
+            updateExistedIndex(indexFile, file, m, cursorPos)
+            break
 
-        f = open(file, O_RDONLY)
-        txt = read(f, stat(f).st_size)
+        cursorPos += (139+len(eachLine[-1]))
+        eachLine = indexFile.readline().split()
+    else:
+        indexFile.seek(0, 2)
+        if cursorPos > 1:
+            mtime = '\n' + getTime(file)
+        else:
+            mtime = getTime(file)
+        indexFile.write(mtime)
+
+        f = open(file, 'rb')
+        txt = f.read()
         m.update(txt)
         hash = ' ' + m.hexdigest()
         hash *= 2
         hash += (' '*42)
-        write(indexFile, hash.encode())
-        write(indexFile, file.encode())
-    close(indexFile)
+        indexFile.write(hash)
+        indexFile.write(path.abspath(file))
+
+
+def getHash(f):
+    txt = f.read()
+    m = hashlib.sha1()
+    m.update(txt)
+    return m.hexdigest()
+
+
+def createNewFoderlInObjects(file):
+    f = open(file, 'rb')
+    hash = getHash(f)
+    newdir = '.lgit/objects/' + hash[:2]
+    if not path.isdir(newdir):
+        mkdir(newdir)
+    newdir = newdir + '/' + hash[2:]
+    f = open(newdir, 'w+')
+    f.write(f.read())
+    f.close()
+    chmod(newdir, 0o644)
+
+
+def lgitAdd(srcFiles):
+    indexFile = open('.lgit/index', 'r+')
+    for file in srcFiles:
+        createNewFoderlInObjects(file)
+        updateIndexFile(file, indexFile)
+
+    indexFile.close()
+
+
+def lgitStatus():
+    cursorPos = 0
+    lsOfAddedFiles = list()
+    lsOfNotAddedFiles = list()
+    indexFile = open('.lgit/index', 'r+')
+    eachLine = indexFile.readline().split()
+    print('Changes to be committed:\n  (use \"./lgit.py reset HEAD ...\" to unstage)\n')
+    while len(eachLine) > 1:
+        f = open(eachLine[-1], 'rb')
+        # rewrite timestamp
+        indexFile.seek(cursorPos, 0)
+        mtime = getTime(eachLine[-1])
+        indexFile.write(mtime)
+
+        hash = getHash(f)
+        indexFile.write(' ' + hash)
+
+        print('     modified:', eachLine[-1])
+        if hash != eachLine[2]:
+            lsOfNotAddedFiles.append(eachLine[-1])
+
+        cursorPos += (139+len(eachLine[-1]))
+        indexFile.seek(cursorPos, 0)
+        eachLine = indexFile.readline().split()
+
+    indexFile.close()
+
+    if len(lsOfNotAddedFiles) > 0:
+        print('\nChanges not staged for commit:')
+        print('  (use \"./lgit.py add ...\" to update what will be committed)')
+        print('  (use \"./lgit.py checkout -- ...\" to discard changes in working directory)\n')
+        for file in lsOfNotAddedFiles:
+            print('     modified:', file)
 
 
 def lgitInit():
@@ -67,11 +135,11 @@ def lgitInit():
         mkdir('.lgit/objects')
         mkdir('.lgit/commits')
         mkdir('.lgit/snapshots')
-        f = open('.lgit/index', O_CREAT | O_RDWR)
-        close(f)
+        f = open('.lgit/index', 'x')
+        f.close()
         chmod('.lgit/index', 0o644)
-        f = open('.lgit/config', O_CREAT | O_RDWR)
-        close(f)
+        f = open('.lgit/config', 'x')
+        f.close()
         chmod('.lgit/config', 0o644)
     except Exception as e:
         print(e)
@@ -87,8 +155,8 @@ def main():
         lgitInit()
     elif args.input[0] == 'add':
         lgitAdd(args.input[1:])
-    elif args.input[0] == 'commit':
-        lgitCommit(args.srcFiles)
+    elif args.input[0] == 'status':
+        lgitStatus()
 
 
 if __name__ == "__main__":
