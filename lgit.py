@@ -14,9 +14,10 @@ def lgitLsFiles():
     indexFile = open(path.join(pathLgit, 'index'), 'r')
     eachLine = indexFile.readline().split()
     while len(eachLine) > 0:
-        if eachLine[-1][:len(currentDir)]:
-            print()
-        pass
+        if eachLine[-1][:len(currentDir)] == currentDir:
+            print(eachLine[-1][len(currentDir)+1:])
+        eachLine = indexFile.readline().split()
+    indexFile.close()
 
 
 def lgitConfig(author):
