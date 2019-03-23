@@ -8,12 +8,72 @@ from time import ctime
 from datetime import datetime
 
 
-def lgitRemove(srcFiles):
+def getLsOfAbleToRemove(lsofpathName, pathLgit):
+    for path in lsofpathName:
+        relativePath = path.abspath(path)[len(pathLgit)+1:]
+        # if
+
+
+def getAllPathIndex(indexContent):
+    res = list()
+    for eachLine in indexContent:
+        res.append(eachLine.split()[-1])
+    return res
+
+
+def lgitRemove(srcFiles, pathLgit):
+    indexContent = list()
+    lsOfTracked = list()
+
+    indexFile = open(path.join(pathLgit, 'index'), 'r')
+    eachLine = indexFile.readline().split()
+    while len(eachLine) > 0:
+        indexContent.append(eachLine[1:])
+        eachLine = indexFile.readline().split()
+
+    dirNameOfLgit = path.dirname(pathLgit)
+
     for file in srcFiles:
-        try:
-            unlink(file)
-        except FileNotFoundError:
-            print('fatal: pathspec \'{}\' did not match any files'.format(file))
+        match = False
+        relativePath = path.abspath(file)[len(dirNameOfLgit)+1:]
+        for i, index in enumerate(indexContent):
+            if relativePath == index[-1]:
+                lsOfTracked.append(i)
+                match = True
+                break
+            elif relativePath == index[-1][:len(relativePath)]:
+                print('fatal: not removing \'{}\' recursively without -r'.format(relativePath))
+                quit()
+
+        if match is False:
+            print('fatal: pathspec \'{}\' did not match any files\n'.format(relativePath))
+            quit()
+
+    lsOfnotAbleRemove = [[], []]
+    lsForRemove = list()
+    for i in lsOfTracked:
+        if indexContent[i][0] != indexContent[i][1]:
+            lsOfnotAbleRemove[0].append(i)
+        elif indexContent[i][2] != indexContent[i][1]:
+            lsOfnotAbleRemove[1].append(i)
+        else:
+            lsForRemove.append(i)
+
+    if len(lsOfnotAbleRemove[0]) + len(lsOfnotAbleRemove[1]) > 0:
+        if len(lsOfnotAbleRemove[0]) > 0:
+            print('error: the following file has staged content different from both the\nfile and the HEAD:')
+            for i in lsOfnotAbleRemove[0]:
+                print('   ', indexContent[i][-1])
+            print('(use -f to force removal)')
+        if len(lsOfnotAbleRemove[1]) > 0:
+            print('error: the following files have changes staged in the index:')
+            for i in lsOfnotAbleRemove[1]:
+                print('   ', indexContent[i][-1])
+            print('(use --cached to keep the file, or -f to force removal)')
+        quit()
+    else:
+        for i in lsForRemove:
+            unlink(path.join(dirNameOfLgit, indexContent[i][-1]))
 
 
 def printReadableTime(time):
@@ -27,11 +87,12 @@ def printReadableTime(time):
     print('Date:', weekday, x.strftime('%b %d %H:%M:%S %Y'))
 
 
-def lgitLog():
+def lgitLog(pathLgit):
 
     pathLgit = getNearestLgit()
     pathCommits = path.join(pathLgit, 'commits')
     lsOfCommits = listdir(pathCommits)
+    lsOfCommits.sort()
     for i, file in enumerate(lsOfCommits[::-1]):
         print('commit', file)
         commit = open(path.join(pathCommits, file), 'r')
@@ -40,18 +101,22 @@ def lgitLog():
         printReadableTime(commitContent[1])
         print('\n    ', commitContent[3])
         if i != len(lsOfCommits)-1:
-            print('\n\n')
+            print('\n')
         commit.close()
 
 
-def lgitLsFiles():
+def lgitLsFiles(pathLgit):
     pathLgit = getNearestLgit()
     relativeCurrentDir = getcwd()[len(path.dirname(pathLgit))+1:]
     indexFile = open(path.join(pathLgit, 'index'), 'r')
     eachLine = indexFile.readline().split()
     while len(eachLine) > 0:
         if eachLine[-1][:len(relativeCurrentDir)] == relativeCurrentDir:
-            print(eachLine[-1][len(relativeCurrentDir)+1:])
+            relativeTracked = eachLine[-1][len(relativeCurrentDir):]
+            if relativeTracked[0] == '/':
+                print(relativeTracked[1:])
+            else:
+                print(relativeTracked)
         eachLine = indexFile.readline().split()
     indexFile.close()
 
@@ -77,29 +142,43 @@ def getUserName():
     return userName
 
 
-def lgitCommit(comment):
+def lgitCommit(comment, pathLgit):
     currentTime = datetime.now().strftime('%Y%m%d%H%M%S')
     pathLgit = getNearestLgit()
     pathSnapshots = path.join(pathLgit, 'snapshots')
     snapshotsFile = open(path.join(pathSnapshots, currentTime), 'w+')
-    indexFile = open(path.join(pathLgit, 'index'), 'r+')
+
+    indexContent = list()
+    indexFile = open(path.join(pathLgit, 'index'), 'r')
     eachLine = indexFile.readline().split()
-    cursorPos = 0
     firstime = 1
-    while len(eachLine) > 1:
-        cursorPos += 97
-        indexFile.seek(cursorPos, 0)
-        indexFile.write(eachLine[2])
+    while len(eachLine) > 0:
         if firstime != 1:
             snapshotsFile.write('\n')
         else:
             firstime = 0
         snapshotsFile.write(eachLine[2] + ' ' + eachLine[-1])
-        cursorPos += (42+len(eachLine[-1]))
-        indexFile.seek(cursorPos, 0)
+        if path.exists(eachLine[-1]):
+            indexContent.append(eachLine)
         eachLine = indexFile.readline().split()
-
+    indexFile.close()
     snapshotsFile.close()
+
+    for index in indexContent:
+        if len(index) == 4:
+            index.insert(3, index[2])
+        elif len(index) == 5:
+            index[3] = index[2]
+
+    indexFile = open(path.join(pathLgit, 'index'), 'w+')
+    for i, eachLine in enumerate(indexContent):
+        for j, index in enumerate(eachLine):
+            if j < 4:
+                indexFile.write(index + ' ')
+            elif i < len(indexContent)-1:
+                indexFile.write(index + '\n')
+            else:
+                indexFile.write(index)
     indexFile.close()
 
     pathCommits = path.join(pathLgit, 'commits')
@@ -184,10 +263,17 @@ def createNewFoderlInObjects(file, pathLgit):
     chmod(newdir, 0o644)
 
 
-def lgitAdd(srcFiles):
-    pathLgit = getNearestLgit()
+def lgitAdd(srcFiles, pathLgit):
+    existedDir = list()
 
     for dir in srcFiles:
+        if not path.exists(dir):
+            print('fatal: pathspec \'{}\' did not match any files'.format(dir))
+            quit()
+        else:
+            existedDir.append(dir)
+
+    for dir in existedDir:
         if path.isfile(dir):
             createNewFoderlInObjects(dir, pathLgit)
             updateIndexFile(dir, pathLgit)
@@ -199,86 +285,107 @@ def lgitAdd(srcFiles):
                     updateIndexFile(pathFile, pathLgit)
 
 
-def printStatus(lsOfAddedFiles, lsOfNotAddedFiles, pathLgit):
-    if len(lsOfAddedFiles) > 0:
-        print('Changes to be committed:\n  (use \"./lgit.py reset HEAD ...\" to unstage)\n')
+def printStatus(lsOfAddedFiles, lsOfNotAddedFiles, lsOfDeletedFiles, pathLgit):
+    print('On branch master')
+    if len(listdir(path.join(pathLgit, 'commits'))) == 0:
+        print('\nNo commits yet')
+    dirNameOfLgit = path.dirname(pathLgit)
+    if len(lsOfAddedFiles) + len(lsOfDeletedFiles) > 0:
+        print('\nChanges to be committed:\n  (use \"./lgit.py reset HEAD ...\" to unstage)\n')
         for file in lsOfAddedFiles:
-            print('     modified:', file)
+            print('     new file:', file[len(dirNameOfLgit)+1:])
+        for file in lsOfDeletedFiles:
+            print('     deleted:', file[len(dirNameOfLgit)+1:])
 
     if len(lsOfNotAddedFiles) > 0:
         print('\nChanges not staged for commit:')
         print('  (use \"./lgit.py add ...\" to update what will be committed)')
         print('  (use \"./lgit.py checkout -- ...\" to discard changes in working directory)\n')
         for file in lsOfNotAddedFiles:
-            print('     modified:', file)
+            print('     modified:', file[len(dirNameOfLgit)+1:])
 
-    dirNameOfLgit = path.dirname(pathLgit)
     firstime = 0
     for root_w, _, files_w in walk(dirNameOfLgit, topdown=True):
         for name in files_w:
-            relativeDir = path.join(root_w, name)[len(dirNameOfLgit)+1:]
+            relativeDir = path.join(root_w, name)
 
-            if relativeDir not in lsOfAddedFiles and relativeDir[:5] != '.lgit':
+            if relativeDir not in lsOfAddedFiles and relativeDir[:len(pathLgit)] != pathLgit:
                 if firstime == 0:
                     firstime = 1
                     print("\nUntracked files:")
-                    print('  (use \"./lgit.py add <file>...\" to include in what will be committed)\n')
-                print('    ',relativeDir)
+                    print('  (use \"./lgit.py add <file>...\" to include in what will be committed)')
+                print('    ', relativeDir[len(dirNameOfLgit)+1:])
 
     if len(lsOfAddedFiles) == 0:
         print('\nnothing added to commit but untracked files present (use \"./lgit.py add\" to track)')
 
 
-def lgitStatus():
+def lgitStatus(pathLgit):
     cursorPos = 0
     lsOfAddedFiles = list()
     lsOfNotAddedFiles = list()
     lsOfUntrackedFiles = list()
-
-    pathLgit = getNearestLgit()
+    lsOfDeletedFiles = list()
     indexFile = open(path.join(pathLgit, 'index'), 'r+')
     eachLine = indexFile.readline().split()
     while len(eachLine) > 1:
         # rewrite timestamp
         indexFile.seek(cursorPos, 0)
         pathName = path.join(path.dirname(pathLgit), eachLine[-1])
-        mtime = getTime(pathName)
-        indexFile.write(mtime)
+        if path.isfile(pathName):
+            mtime = getTime(pathName)
+            indexFile.write(mtime)
 
-        hash = ' ' + getHash(pathName)
-        indexFile.write(hash)
+            hash = ' ' + getHash(pathName)
+            indexFile.write(hash)
 
-        lsOfAddedFiles.append(eachLine[-1])
-        if hash[1:] != eachLine[2]:
-            lsOfNotAddedFiles.append(eachLine[-1])
+            lsOfAddedFiles.append(pathName)
+            if hash[1:] != eachLine[2]:
+                lsOfNotAddedFiles.append(pathName)
+        else:
+            lsOfDeletedFiles.append(pathName)
 
         cursorPos += (139+len(eachLine[-1]))
         indexFile.seek(cursorPos, 0)
         eachLine = indexFile.readline().split()
 
     indexFile.close()
-    printStatus(lsOfAddedFiles, lsOfNotAddedFiles, pathLgit)
+    printStatus(lsOfAddedFiles, lsOfNotAddedFiles, lsOfDeletedFiles, pathLgit)
 
 
 def lgitInit():
-    try:
+    lsOfNeededFolders = ['commits', 'objects', 'snapshots']
+    lsOfNeededFiles = ['config', 'index']
+    reInit = 0
+
+    if path.exists('.lgit'):
+        reInit = 1
+    else:
         mkdir('.lgit')
-        mkdir('.lgit/objects')
-        mkdir('.lgit/commits')
-        mkdir('.lgit/snapshots')
-        f = open('.lgit/index', 'x')
-        f.close()
-        chmod('.lgit/index', 0o644)
-        f = open('.lgit/config', 'x')
-        f.close()
-        chmod('.lgit/config', 0o644)
-    except Exception as e:
-        print(e)
+
+    for folder in lsOfNeededFolders:
+        if path.exists(path.join('.lgit', folder)):
+            reInit = 1
+        else:
+            mkdir(path.join('.lgit', folder))
+
+    for file in lsOfNeededFiles:
+        if path.exists(path.join('.lgit', file)):
+            reInit = 1
+        else:
+            f = open(path.join('.lgit', file), 'x')
+            f.close()
+            chmod(path.join('.lgit', file), 0o644)
+
+    pathLgit = path.join(getcwd(), '.lgit')
+    if reInit:
+        print('Git repository already initialized.')
 
 
 def getNearestLgit():
     currentDir = getcwd()
-    while len(currentDir) > 0:
+
+    while len(currentDir) > 1:
         for dir in listdir(currentDir):
             if dir == '.lgit':
                 return path.join(currentDir, dir)
@@ -299,26 +406,25 @@ def main():
         if args.input[0] == 'init':
             lgitInit()
         else:
-            print('fatal: not a git repository (or any of the parent directories): .git')
+            print('fatal: not a git repository (or any of the parent directories)')
     else:
-        if isGoodLgit():
-            if args.input[0] == 'init':
-
-            elif args.input[0] == 'add':
-                lgitAdd(args.input[1:])
-            elif args.input[0] == 'status':
-                lgitStatus()
-            elif args.input[0] == 'commit':
-                lgitCommit(args.mm)
-            elif args.input[0] == 'config':
-                lgitConfig(args.author)
-            elif args.input[0] == 'ls-files':
-                lgitLsFiles()
-            elif args.input[0] == 'log':
-                lgitLog()
-            elif args.input[0] == 'rm':
-                lgitRemove(args.input[1:])
-
+        if args.input[0] == 'init':
+            lgitInit()
+            pathLgit = getNearestLgit()
+        elif args.input[0] == 'add':
+            lgitAdd(args.input[1:], pathLgit)
+        elif args.input[0] == 'status':
+            lgitStatus(pathLgit)
+        elif args.input[0] == 'commit':
+            lgitCommit(args.mm, pathLgit)
+        elif args.input[0] == 'config':
+            lgitConfig(args.author, pathLgit)
+        elif args.input[0] == 'ls-files':
+            lgitLsFiles(pathLgit)
+        elif args.input[0] == 'log':
+            lgitLog(pathLgit)
+        elif args.input[0] == 'rm':
+            lgitRemove(args.input[1:], pathLgit)
 
 
 if __name__ == "__main__":
