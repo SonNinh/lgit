@@ -8,19 +8,6 @@ from time import ctime
 from datetime import datetime
 
 
-def getLsOfAbleToRemove(lsofpathName, pathLgit):
-    for path in lsofpathName:
-        relativePath = path.abspath(path)[len(pathLgit)+1:]
-        # if
-
-
-def getAllPathIndex(indexContent):
-    res = list()
-    for eachLine in indexContent:
-        res.append(eachLine.split()[-1])
-    return res
-
-
 def lgitRemove(srcFiles, pathLgit):
     indexContent = list()
     lsOfTracked = list()
@@ -46,7 +33,7 @@ def lgitRemove(srcFiles, pathLgit):
                 quit()
 
         if match is False:
-            print('fatal: pathspec \'{}\' did not match any files\n'.format(relativePath))
+            print('fatal: pathspec \'{}\' did not match any files'.format(relativePath))
             quit()
 
     lsOfnotAbleRemove = [[], []]
@@ -124,7 +111,7 @@ def lgitLsFiles(pathLgit):
 def lgitConfig(author, pathLgit):
     pathConfig = path.join(pathLgit, 'config')
     configFile = open(pathConfig, 'w+')
-    configFile.write(author)
+    configFile.write(author + '\n')
     configFile.close()
 
 
@@ -184,7 +171,6 @@ def lgitCommit(comment, pathLgit):
     pathCommits = path.join(pathLgit, 'commits')
     f = open(path.join(pathCommits, currentTime), 'w+')
     f.write(getUserName())
-    f.write('\n')
     f.write(currentTime)
     f.write('\n\n')
     f.write(comment)
@@ -285,46 +271,54 @@ def lgitAdd(srcFiles, pathLgit):
                     updateIndexFile(pathFile, pathLgit)
 
 
-def printStatus(lsOfAddedFiles, lsOfNotAddedFiles, lsOfDeletedFiles, pathLgit):
+def printStatus(lsOfAddedFiles, lsOfNotAddedFiles, lsOfDeletedFiles, lsOfTrackedFiles, pathLgit):
     print('On branch master')
     if len(listdir(path.join(pathLgit, 'commits'))) == 0:
-        print('\nNo commits yet')
+        print('\nNo commits yet\n')
     dirNameOfLgit = path.dirname(pathLgit)
     if len(lsOfAddedFiles) + len(lsOfDeletedFiles) > 0:
-        print('\nChanges to be committed:\n  (use \"./lgit.py reset HEAD ...\" to unstage)\n')
+        print('Changes to be committed:\n  (use \"./lgit.py reset HEAD ...\" to unstage)\n')
         for file in lsOfAddedFiles:
-            print('     new file:', file[len(dirNameOfLgit)+1:])
+            print('     modified:', file)
         for file in lsOfDeletedFiles:
-            print('     deleted:', file[len(dirNameOfLgit)+1:])
-
+            print('     deleted:', file)
+        print()
     if len(lsOfNotAddedFiles) > 0:
-        print('\nChanges not staged for commit:')
+        print('Changes not staged for commit:')
         print('  (use \"./lgit.py add ...\" to update what will be committed)')
         print('  (use \"./lgit.py checkout -- ...\" to discard changes in working directory)\n')
         for file in lsOfNotAddedFiles:
-            print('     modified:', file[len(dirNameOfLgit)+1:])
-
+            print('     modified:', file)
+        print()
+    numOfUntracked = 0
     firstime = 0
     for root_w, _, files_w in walk(dirNameOfLgit, topdown=True):
         for name in files_w:
             relativeDir = path.join(root_w, name)
 
-            if relativeDir not in lsOfAddedFiles and relativeDir[:len(pathLgit)] != pathLgit:
+            if relativeDir[len(dirNameOfLgit)+1:] not in lsOfTrackedFiles and relativeDir[:len(pathLgit)] != pathLgit:
                 if firstime == 0:
                     firstime = 1
-                    print("\nUntracked files:")
-                    print('  (use \"./lgit.py add <file>...\" to include in what will be committed)')
+                    print("Untracked files:")
+                    print('  (use \"./lgit.py add <file>...\" to include in what will be committed)\n')
                 print('    ', relativeDir[len(dirNameOfLgit)+1:])
+                numOfUntracked = 1
+    if numOfUntracked == 1:
+        print()
 
-    if len(lsOfAddedFiles) == 0:
-        print('\nnothing added to commit but untracked files present (use \"./lgit.py add\" to track)')
-
+    if len(lsOfNotAddedFiles) != 0:
+        print('no changes added to commit (use "git add" and/or "git commit -a")')
+    elif len(lsOfAddedFiles) + len(lsOfDeletedFiles) == 0:
+        if numOfUntracked == 1:
+            print('nothing added to commit but untracked files present (use \"./lgit.py add\" to track)')
+        else:
+            print('nothing to commit, working tree clean')
 
 def lgitStatus(pathLgit):
     cursorPos = 0
     lsOfAddedFiles = list()
     lsOfNotAddedFiles = list()
-    lsOfUntrackedFiles = list()
+    lsOfTrackedFiles = list()
     lsOfDeletedFiles = list()
     indexFile = open(path.join(pathLgit, 'index'), 'r+')
     eachLine = indexFile.readline().split()
@@ -339,18 +333,20 @@ def lgitStatus(pathLgit):
             hash = ' ' + getHash(pathName)
             indexFile.write(hash)
 
-            lsOfAddedFiles.append(pathName)
+            lsOfTrackedFiles.append(eachLine[-1])
+            if eachLine[2] != eachLine[3]:
+                lsOfAddedFiles.append(eachLine[-1])
             if hash[1:] != eachLine[2]:
-                lsOfNotAddedFiles.append(pathName)
+                lsOfNotAddedFiles.append(eachLine[-1])
         else:
-            lsOfDeletedFiles.append(pathName)
+            lsOfDeletedFiles.append(eachLine[-1])
 
         cursorPos += (139+len(eachLine[-1]))
         indexFile.seek(cursorPos, 0)
         eachLine = indexFile.readline().split()
 
     indexFile.close()
-    printStatus(lsOfAddedFiles, lsOfNotAddedFiles, lsOfDeletedFiles, pathLgit)
+    printStatus(lsOfAddedFiles, lsOfNotAddedFiles, lsOfDeletedFiles, lsOfTrackedFiles, pathLgit)
 
 
 def lgitInit():
